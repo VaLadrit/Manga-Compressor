@@ -1,12 +1,80 @@
-﻿# Mihon_to_CBZ.ps1
-# Собирает изображения из папок глав и CBZ/ZIP-архивов в один CBZ или по томам.
-# Требования: Windows 10/11, встроенный Windows PowerShell 5.1 или PowerShell 7+.
+# Manga Chapter Compressor - localized PowerShell utility.
+# Combines chapter archives or image folders into one CBZ or separate volume files.
+# Requirements: Windows 10/11, Windows PowerShell 5.1 or PowerShell 7+.
 
 $ErrorActionPreference = 'Stop'
 
 $ImageExtensions = @('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.tif', '.tiff')
 $ArchiveExtensions = @('.cbz', '.zip')
 $ExportFolderName = 'CBZ_Export'
+
+# Detect the Windows display language. Russian is supported; English is the fallback.
+$script:IsRussian = (Get-UICulture).TwoLetterISOLanguageName -eq 'ru'
+$script:Text = if ($script:IsRussian) {
+    @{
+        Header = ' Manga Compressor | Создание CBZ-архивов для читалки'
+        FolderDialog = 'Выберите папку одной манги (папку с главами или архивами CBZ/ZIP).'
+        ArchiveReadError = '[!] Не удалось прочитать архив {0}: {1}'
+        EmptyGroup = 'В выбранной группе нет изображений.'
+        MissingPage = 'Не найдена страница {0} внутри {1}'
+        ProgressActivity = 'Создание CBZ: {0}'
+        Cancelled = 'Папка не выбрана. Работа отменена.'
+        SelectedFolder = 'Выбрана папка: {0}'
+        WhatToDo = 'Что сделать с главами?'
+        MergeChoice = 'Собрать всё в один CBZ'
+        SplitChoice = 'Разделить по томам (по обозначениям в именах архивов/папок)'
+        ModePrompt = 'Ваш выбор [1/2]'
+        ModeInvalid = 'Введите 1 или 2.'
+        MangaPrompt = 'Название манги'
+        MangaNameEmpty = 'Название манги не может быть пустым.'
+        Scanning = 'Ищу главы и архивы...'
+        NoImages = 'Изображения не найдены. Выберите папку одной манги, внутри которой находятся папки глав или архивы CBZ/ZIP.'
+        FoundChapters = 'Найдено глав: {0}'
+        FoundPages = 'Найдено страниц: {0}'
+        VolumeWarning = 'Внимание: у {0} глав не найден номер тома. Они попадут в tom-1.'
+        NoVolumeLabels = 'Обозначения томов не найдены. Все главы будут собраны в tom-1.'
+        VolumeLabel = 'Том {0}'
+        ResultSaved = 'Результат будет сохранён в: {0}'
+        Creating = 'Создаю {0}...'
+        Created = 'Готово: {0}'
+        AllDone = 'Все архивы успешно созданы!'
+        OutputFolder = 'Папка: {0}'
+        Error = 'Ошибка: {0}'
+        ClosePrompt = 'Нажмите Enter, чтобы закрыть окно...'
+    }
+} else {
+    @{
+        Header = ' Manga Compressor | Create CBZ archives for e-readers'
+        FolderDialog = 'Select the folder containing one manga title (chapter folders or CBZ/ZIP archives).'
+        ArchiveReadError = '[!] Could not read archive {0}: {1}'
+        EmptyGroup = 'The selected group contains no images.'
+        MissingPage = 'Page {0} was not found inside {1}'
+        ProgressActivity = 'Creating CBZ: {0}'
+        Cancelled = 'No folder selected. Operation cancelled.'
+        SelectedFolder = 'Selected folder: {0}'
+        WhatToDo = 'What would you like to do with the chapters?'
+        MergeChoice = 'Merge everything into one CBZ'
+        SplitChoice = 'Split into volumes (using labels in archive/folder names)'
+        ModePrompt = 'Choose [1/2]'
+        ModeInvalid = 'Enter 1 or 2.'
+        MangaPrompt = 'Manga title'
+        MangaNameEmpty = 'Manga title cannot be empty.'
+        Scanning = 'Scanning for chapters and archives...'
+        NoImages = 'No images found. Select one manga folder containing chapter folders or CBZ/ZIP archives.'
+        FoundChapters = 'Detected chapters: {0}'
+        FoundPages = 'Detected pages: {0}'
+        VolumeWarning = 'Warning: {0} chapters have no volume number. They will be added to tom-1.'
+        NoVolumeLabels = 'No volume labels found. All chapters will be placed in tom-1.'
+        VolumeLabel = 'Volume {0}'
+        ResultSaved = 'Output will be saved to: {0}'
+        Creating = 'Creating {0}...'
+        Created = 'Created: {0}'
+        AllDone = 'All archives were created successfully!'
+        OutputFolder = 'Folder: {0}'
+        Error = 'Error: {0}'
+        ClosePrompt = 'Press Enter to close this window...'
+    }
+}
 
 function Get-NaturalKey {
     param([Parameter(Mandatory = $true)][string]$Value)
@@ -76,7 +144,7 @@ function Get-UniqueOutputPath {
 function Select-MangaFolder {
     Add-Type -AssemblyName System.Windows.Forms
     $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-    $dialog.Description = 'Выберите папку одной манги из Mihon (папку с главами или архивами)'
+    $dialog.Description = $script:Text.FolderDialog
     $dialog.ShowNewFolderButton = $false
 
     try {
@@ -127,7 +195,7 @@ function Find-Chapters {
             }
         }
         catch {
-            Write-Host ("[!] Не удалось прочитать архив {0}: {1}" -f $file.Name, $_.Exception.Message) -ForegroundColor Yellow
+            Write-Host ($script:Text.ArchiveReadError -f $file.Name, $_.Exception.Message) -ForegroundColor Yellow
         }
         finally {
             if ($null -ne $inputZip) { $inputZip.Dispose() }
@@ -216,7 +284,7 @@ function New-CbzArchive {
 
     $total = 0
     foreach ($chapter in $Chapters) { $total += $chapter.Pages.Count }
-    if ($total -le 0) { throw 'В выбранной группе нет изображений.' }
+    if ($total -le 0) { throw $script:Text.EmptyGroup }
 
     $completed = 0
     $startTime = Get-Date
@@ -251,7 +319,7 @@ function New-CbzArchive {
                         }
                         $inputEntry = $inputZip.GetEntry($page.EntryName)
                         if ($null -eq $inputEntry) {
-                            throw ("Не найдена страница {0} внутри {1}" -f $page.EntryName, $page.Path)
+                            throw ($script:Text.MissingPage -f $page.EntryName, $page.Path)
                         }
                         $inputStream = $inputEntry.Open()
                     }
@@ -279,14 +347,14 @@ function New-CbzArchive {
                     $remaining = [int][math]::Max(0, ($elapsed.TotalSeconds / $completed) * ($total - $completed))
                 }
                 $currentName = [System.IO.Path]::GetFileName($page.Name)
-                Write-Progress -Activity ("Создание CBZ: {0}" -f $Label) `
+                Write-Progress -Activity ($script:Text.ProgressActivity -f $Label) `
                     -Status ("{0}% | {1}/{2} | {3}" -f $percent, $completed, $total, $currentName) `
                     -PercentComplete $percent -SecondsRemaining $remaining
             }
         }
     }
     finally {
-        Write-Progress -Activity ("Создание CBZ: {0}" -f $Label) -Completed
+        Write-Progress -Activity ($script:Text.ProgressActivity -f $Label) -Completed
         if ($null -ne $inputZip) { $inputZip.Dispose() }
         if ($null -ne $outputZip) { $outputZip.Dispose() }
         if ($null -ne $outputStream) { $outputStream.Dispose() }
@@ -299,44 +367,44 @@ try {
 
     Clear-Host
     Write-Host '============================================================' -ForegroundColor DarkCyan
-    Write-Host ' Mihon -> CBZ | Сборка манги для электронной книги' -ForegroundColor Cyan
+    Write-Host $script:Text.Header -ForegroundColor Cyan
     Write-Host '============================================================' -ForegroundColor DarkCyan
     Write-Host ''
 
     $root = Select-MangaFolder
     if ([string]::IsNullOrWhiteSpace($root)) {
-        Write-Host 'Папка не выбрана. Работа отменена.' -ForegroundColor Yellow
+        Write-Host $script:Text.Cancelled -ForegroundColor Yellow
         exit 0
     }
 
-    Write-Host ("Выбрана папка: {0}" -f $root) -ForegroundColor Gray
+    Write-Host ($script:Text.SelectedFolder -f $root) -ForegroundColor Gray
     Write-Host ''
-    Write-Host 'Что сделать с главами?' -ForegroundColor Cyan
-    Write-Host '  1 - Собрать всё в один CBZ'
-    Write-Host '  2 - Разделить по томам (по номеру тома в имени каждого архива/папки)'
+    Write-Host $script:Text.WhatToDo -ForegroundColor Cyan
+    Write-Host ("  1 - {0}" -f $script:Text.MergeChoice)
+    Write-Host ("  2 - {0}" -f $script:Text.SplitChoice)
 
     do {
-        $mode = Read-Host 'Ваш выбор [1/2]'
-        if ($mode -notin @('1', '2')) { Write-Host 'Введите 1 или 2.' -ForegroundColor Yellow }
+        $mode = Read-Host $script:Text.ModePrompt
+        if ($mode -notin @('1', '2')) { Write-Host $script:Text.ModeInvalid -ForegroundColor Yellow }
     } while ($mode -notin @('1', '2'))
 
-    $mangaNameInput = Read-Host 'Название манги'
+    $mangaNameInput = Read-Host $script:Text.MangaPrompt
     if ([string]::IsNullOrWhiteSpace($mangaNameInput)) {
-        throw 'Название манги не может быть пустым.'
+        throw $script:Text.MangaNameEmpty
     }
     $mangaName = ConvertTo-SafeFileName $mangaNameInput
 
     Write-Host ''
-    Write-Host 'Ищу папки глав и архивы...' -ForegroundColor Cyan
+    Write-Host $script:Text.Scanning -ForegroundColor Cyan
     $chapters = @(Find-Chapters -Root $root)
     if ($chapters.Count -eq 0) {
-        throw 'Изображения не найдены. Выберите папку одной манги, внутри которой находятся папки глав или CBZ/ZIP.'
+        throw $script:Text.NoImages
     }
 
     $totalPages = 0
     foreach ($chapter in $chapters) { $totalPages += $chapter.Pages.Count }
-    Write-Host ("Найдено папок с главами: {0}" -f $chapters.Count) -ForegroundColor Green
-    Write-Host ("Найдено страниц: {0}" -f $totalPages) -ForegroundColor Green
+    Write-Host ($script:Text.FoundChapters -f $chapters.Count) -ForegroundColor Green
+    Write-Host ($script:Text.FoundPages -f $totalPages) -ForegroundColor Green
 
     $outputFolder = Join-Path $root $ExportFolderName
     New-Item -ItemType Directory -Path $outputFolder -Force | Out-Null
@@ -359,10 +427,10 @@ try {
 
         $chaptersWithoutVolume = @($chapters | Where-Object { $null -eq $_.Volume }).Count
         if ($chaptersWithoutVolume -gt 0) {
-            Write-Host ("Внимание: у {0} папок не найден номер тома. Они попадут в tom-1." -f $chaptersWithoutVolume) -ForegroundColor Yellow
+            Write-Host ($script:Text.VolumeWarning -f $chaptersWithoutVolume) -ForegroundColor Yellow
         }
         if (@($chapters | Where-Object { $null -ne $_.Volume }).Count -eq 0) {
-            Write-Host 'Обозначения томов не найдены. Все главы будут собраны в tom-1.' -ForegroundColor Yellow
+            Write-Host $script:Text.NoVolumeLabels -ForegroundColor Yellow
         }
 
         foreach ($volume in @($volumeGroups.Keys | Sort-Object { [int]$_ })) {
@@ -371,20 +439,20 @@ try {
             $jobs.Add([pscustomobject]@{
                 Chapters = @($volumeGroups[$volume].ToArray())
                 OutputPath = $outputPath
-                Label = "Том $volume"
+                Label = ($script:Text.VolumeLabel -f $volume)
             })
         }
     }
 
     Write-Host ''
-    Write-Host ("Результат будет сохранён в: {0}" -f $outputFolder) -ForegroundColor Gray
+    Write-Host ($script:Text.ResultSaved -f $outputFolder) -ForegroundColor Gray
 
     foreach ($job in $jobs) {
         Write-Host ''
-        Write-Host ("Создаю {0}..." -f [System.IO.Path]::GetFileName($job.OutputPath)) -ForegroundColor Cyan
+        Write-Host ($script:Text.Creating -f [System.IO.Path]::GetFileName($job.OutputPath)) -ForegroundColor Cyan
         try {
             New-CbzArchive -Chapters $job.Chapters -OutputPath $job.OutputPath -Label $job.Label
-            Write-Host ("Готово: {0}" -f $job.OutputPath) -ForegroundColor Green
+            Write-Host ($script:Text.Created -f $job.OutputPath) -ForegroundColor Green
         }
         catch {
             if (Test-Path -LiteralPath $job.OutputPath) {
@@ -395,14 +463,14 @@ try {
     }
 
     Write-Host ''
-    Write-Host 'Все архивы успешно созданы!' -ForegroundColor Green
-    Write-Host ("Папка: {0}" -f $outputFolder) -ForegroundColor Gray
+    Write-Host $script:Text.AllDone -ForegroundColor Green
+    Write-Host ($script:Text.OutputFolder -f $outputFolder) -ForegroundColor Gray
 }
 catch {
     Write-Host ''
-    Write-Host ("Ошибка: {0}" -f $_.Exception.Message) -ForegroundColor Red
+    Write-Host ($script:Text.Error -f $_.Exception.Message) -ForegroundColor Red
 }
 
 Write-Host ''
-Write-Host 'Нажмите Enter, чтобы закрыть окно...'
+Write-Host $script:Text.ClosePrompt
 [void](Read-Host)
